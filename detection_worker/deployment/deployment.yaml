@@ -1,0 +1,36 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: tf-worker
+spec:
+  selector:
+    matchLabels:
+      run: tf-worker
+  replicas: 0
+  template:
+    metadata:
+      labels:
+        run: tf-worker
+    spec:
+      containers:
+      - name: tf-worker
+        image: CONTAINER_REGISTRY/PROJECT_ID/IMAGE:TAG
+        args: ['tracker']
+        resources:
+          requests:
+            memory: "3500M"
+            cpu: "1200m"
+            nvidia.com/gpu: 1
+          limits:
+            memory: "3000M"
+            cpu: "1100m"
+            nvidia.com/gpu: 1
+
+      tolerations:
+        - key: "dedicated"
+          operator: "Equal"
+          value: "tf-worker"
+          effect: "NoSchedule"
+
+      nodeSelector:
+        cloud.google.com/gke-nodepool: tf-worker

@@ -1,0 +1,85 @@
+#!/usr/bin/env python3 -u
+import json
+import base64
+from google.cloud import pubsub_v1
+from google.cloud import bigquery
+import logging
+from cloud.pubsub_logging import init_logger
+from tracking.tracking_worker import TrackingnWorker
+
+PROJECT = 'continual-grin-207218'
+TOPIC = 'tracking'
+SUBSCRIPTION = 'tracking-sub'
+ACK_DEADLINE = 600
+
+client = pubsub_v1.SubscriberClient()
+subscription = client.subscription_path(PROJECT, SUBSCRIPTION)
+
+bq_client = bigquery.Client()
+
+init_logger()
+logger = logging.getLogger()
+
+bq_client = bigquery.Client()
+
+tracking_dataset_id = 'Tracking'  # replace with your dataset ID
+
+sort_table_id = 'Sort'  # replace with your table ID
+sort_table_ref = bq_client.dataset(tracking_dataset_id).table(sort_table_id)
+sort_table = bq_client.get_table(sort_table_ref)  # API request
+
+sortflow_table_id = 'SortFlow'  # replace with your table ID
+sortflow_table_ref = bq_client.dataset(tracking_dataset_id).table(sortflow_table_id)
+sortflow_table = bq_client.get_table(sortflow_table_ref)  # API request
+
+def ack(client, subscription, ack_id):
+    client.acknowledge(
+                request={"subscription": subscription, "ack_ids": [ack_id]}
+            )
+    print(f"[{subscription}] Message acked: {ack_id}")
+
+def wait_pub(client, subscription, ack_id):
+    print(f"[{subscription}] Deadline modified!: {ack_id}")
+    client.modify_ack_deadline(
+                request={
+                    "subscription": subscription,
+                    "ack_ids": [ack_id],
+                    "ack_deadline_seconds": ACK_DEADLINE,
+                }
+            )
+
+def main():
+    max_messages = 1
+    while True:
+        try:
+            response = client.pull(
+                        request={"subscription": subscription, "max_messages": max_messages}
+            )
+            logger.info('got response')
+        except Exception as e:
+            logger.info(e)
+            logger.info('Frames Topic empty')
+            continue
+        for message in response.received_messages:
+            logger.info('got message')
+            data = json.loads(base64.b64decode(message.message.data).decode('utf-8'))
+            print(data)
+            logger.info('message data: ', data)
+            try:
+                trackingWorker = TrackingnWorker(
+                    data = data,
+                    logger=logger,
+                    bq_client=bq_client,
+                    sort_table=sort_table)
+                trackingWorker.configure_pubsub(
+                    pubsub_wait=lambda: wait_pub(client, subscription, message.ack_id),
+                    pubsub_ack=lambda: ack(client, subscription, message.ack_id))
+                trackingWorker.process()
+            except Exception as e:
+                print(e)
+                logger.info(e)
+                continue
+
+if __name__ == '__main__':
+    print('in main')
+    main()

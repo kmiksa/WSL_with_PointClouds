@@ -1,0 +1,63 @@
+#!/usr/bin/env bash
+
+# Exit immediately if a command exits with a non-zero status.
+# http://stackoverflow.com/questions/19622198/what-does-set-e-mean-in-a-bash-script
+set -e
+
+echo "Workdir: $(pwd)"
+echo "Python path: $PYTHONPATH"
+echo "Path variable: $PATH"
+python --version
+
+
+# Define help message
+function show_help() {
+    echo """
+Usage: docker run <imagename> COMMAND
+
+Commands
+
+detector : Start detector
+tracker : Start tracker
+trainer : Start trainer
+bash        : Start a bash shell
+python      : Run a python command
+linter      : Run flake8 linter
+
+help        : Show this message
+"""
+}
+
+# Exec commands
+case "$1" in
+    detector)
+        echo "Starting worker"
+       run-detector
+    ;;
+    tracker)
+        echo "Staring tracker"
+       run-tracker 
+    ;;
+    trainer)
+        echo "Staring trainer"
+       run-trainer 
+    ;;
+    trainer-queue)
+        echo "Staring trainer"
+       run-trainer-queue 
+    
+    ;;
+    bash)
+       exec "${@:2}"
+    ;;
+    python)
+        python3 "${@:2}"
+    ;;
+    linter)
+        echo "Going to run the Linter using flake8"
+        flake8
+    ;;
+    *)
+        show_help
+    ;;
+esac

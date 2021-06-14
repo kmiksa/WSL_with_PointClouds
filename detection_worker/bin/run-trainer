@@ -1,0 +1,54 @@
+#!/usr/bin/env python3 -u
+import json
+import base64
+
+from google.cloud import pubsub_v1
+import logging
+
+from cloud.pubsub_logging import init_logger
+from training.training_worker import TrainingWorker
+
+PROJECT = 'continual-grin-207218'
+TOPIC = 'video-experiments'
+SUBSCRIPTION = 'video-experiments-sub'
+ACK_DEADLINE = 600
+
+client = pubsub_v1.SubscriberClient()
+subscription = client.subscription_path(PROJECT, SUBSCRIPTION)
+
+init_logger()
+logger = logging.getLogger()
+
+def ack(client, subscription, ack_id):
+    client.acknowledge(
+                request={"subscription": subscription, "ack_ids": [ack_id]}
+            )
+    print(f"[{subscription}] Message acked: {ack_id}")
+
+def wait_pub(client, subscription, ack_id):
+    print(f"[{subscription}] Deadline modified!: {ack_id}")
+    client.modify_ack_deadline(
+                request={
+                    "subscription": subscription,
+                    "ack_ids": [ack_id],
+                    "ack_deadline_seconds": ACK_DEADLINE,
+                }
+            )
+def main():
+    with open('../model-config.json', 'r') as f:
+        data = json.load(f)
+        print('message data: ', data)
+        try:
+            trainingWorker = TrainingWorker(data,logger)
+            #trainingWorker.configure_pubsub(
+            #    pubsub_wait=lambda: wait_pub(client, subscription, message.ack_id),
+            #    pubsub_ack=lambda: ack(client, subscription, message.ack_id))
+            trainingWorker.process()
+        except Exception as e:
+            print('exception: ', e)
+            logger.info(e)
+                
+
+if __name__ == '__main__':
+    print('in main')
+    main()

@@ -1,0 +1,73 @@
+#!/usr/bin/env python3 -u
+import json
+import base64
+
+from google.cloud import pubsub_v1
+from google.cloud import bigquery
+import logging
+
+from cloud.pubsub_logging import init_logger
+from detections.detection_worker import DetectionWorker
+
+PROJECT = 'continual-grin-207218'
+TOPIC = 'video-experiments'
+SUBSCRIPTION = 'video-experiments-sub'
+ACK_DEADLINE = 600
+
+client = pubsub_v1.SubscriberClient()
+subscription = client.subscription_path(PROJECT, SUBSCRIPTION)
+
+bq_client = bigquery.Client()
+
+init_logger()
+logger = logging.getLogger()
+
+bq_client = bigquery.Client()
+detections_dataset_id = 'TFexperiments'  # replace with your dataset ID
+detections_table_id = 'detections'  # replace with your table ID
+detections_table_ref = bq_client.dataset(detections_dataset_id).table(detections_table_id)
+detections_table = bq_client.get_table(detections_table_ref)  # API request
+
+def ack(client, subscription, ack_id):
+    client.acknowledge(
+                request={"subscription": subscription, "ack_ids": [ack_id]}
+            )
+    print(f"[{subscription}] Message acked: {ack_id}")
+
+def wait_pub(client, subscription, ack_id):
+    print(f"[{subscription}] Deadline modified!: {ack_id}")
+    client.modify_ack_deadline(
+                request={
+                    "subscription": subscription,
+                    "ack_ids": [ack_id],
+                    "ack_deadline_seconds": ACK_DEADLINE,
+                }
+            )
+
+def main():
+    max_messages = 1
+    while True:
+        try:
+            response = client.pull(
+                        request={"subscription": subscription, "max_messages": max_messages})
+            logger.info('got response')
+        except Exception as e:
+            logger.info(e)
+            continue
+        for message in response.received_messages:
+            logger.info('got message')
+            data = json.loads(base64.b64decode(message.message.data).decode('utf-8'))
+            print('message data: ', data)
+            try:
+                detectionWorker = DetectionWorker(data,logger,bq_client,detections_table)
+                detectionWorker.configure_pubsub(
+                    pubsub_wait=lambda: wait_pub(client, subscription, message.ack_id),
+                    pubsub_ack=lambda: ack(client, subscription, message.ack_id))
+                detectionWorker.process()
+            except Exception as e:
+                logger.info(e)
+                continue
+
+if __name__ == '__main__':
+    print('in main')
+    main()
